@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f6f7f2">
+  <meta name="description" content="Culinary App — локальное приложение для рецептов, КБЖУ и списка покупок.">
+  <title>Culinary App — рецепты и покупки</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #1d2921;
+      background: #f6f7f2;
+      font-synthesis: none;
+      text-rendering: optimizeLegibility;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; }
+    .wrap { width: min(1080px, calc(100% - 40px)); margin: 0 auto; }
+    header { padding: 28px 0; }
+    .brand { font-weight: 750; letter-spacing: -.04em; font-size: 1.15rem; }
+    main { padding: 64px 0 84px; }
+    .hero { display: grid; grid-template-columns: 1.15fr .85fr; gap: 48px; align-items: center; }
+    .eyebrow { color: #39744c; font-weight: 700; font-size: .82rem; text-transform: uppercase; letter-spacing: .12em; }
+    h1 { font-size: clamp(2.6rem, 6vw, 4.7rem); line-height: 1.02; letter-spacing: -.065em; margin: 16px 0 22px; }
+    .lead { max-width: 620px; color: #58645a; font-size: 1.15rem; line-height: 1.7; }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+    .button { display: inline-flex; min-height: 48px; align-items: center; justify-content: center; padding: 0 20px; border-radius: 12px; background: #28643d; color: white; text-decoration: none; font-weight: 700; }
+    .button.secondary { background: white; color: #28643d; border: 1px solid #dfe5dc; }
+    .notice { margin-top: 18px; color: #647064; font-size: .9rem; line-height: 1.55; }
+    .card { background: #fff; border: 1px solid #e3e8df; border-radius: 24px; padding: 28px; box-shadow: 0 18px 60px #293e2810; }
+    .card h2 { margin: 0 0 14px; font-size: 1.1rem; }
+    .list { display: grid; gap: 14px; }
+    .item { display: flex; gap: 12px; line-height: 1.5; color: #526055; }
+    .check { color: #2f7845; font-weight: 900; }
+    .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 70px; }
+    .feature { background: #fff; border: 1px solid #e3e8df; border-radius: 18px; padding: 22px; }
+    .feature h3 { margin: 0 0 10px; }
+    .feature p { color: #647064; line-height: 1.6; margin: 0; }
+    footer { border-top: 1px solid #e2e7df; padding: 24px 0; color: #748074; font-size: .9rem; }
+    @media (max-width: 760px) {
+      main { padding: 32px 0 56px; }
+      .hero { grid-template-columns: 1fr; gap: 28px; }
+      .features { grid-template-columns: 1fr; margin-top: 36px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="wrap"><div class="brand">🥗 Culinary App</div></header>
+  <main class="wrap">
+    <section class="hero">
+      <div>
+        <div class="eyebrow">Ваши рецепты — у вас</div>
+        <h1>Планируйте блюда и покупки в одном месте</h1>
+        <p class="lead">Создавайте рецепты, пересчитывайте ингредиенты на нужное число порций и собирайте список покупок с расчётом КБЖУ и стоимости.</p>
+        <div class="actions">
+          <a class="button" id="download" href="https://github.com/" rel="noopener">Скачать для Windows</a>
+          <a class="button secondary" id="releases" href="https://github.com/" rel="noopener">Все версии</a>
+        </div>
+        <p class="notice">Установщик запускает frontend и backend на вашем компьютере. База SQLite хранится локально; данные не загружаются на этот сайт. Для обновления цен и КБЖУ нужен интернет.</p>
+      </div>
+      <aside class="card">
+        <h2>Что входит в установщик</h2>
+        <div class="list">
+          <div class="item"><span class="check">✓</span><span>Frontend и backend запускаются на устройстве пользователя</span></div>
+          <div class="item"><span class="check">✓</span><span>Отдельная локальная база SQLite на каждом компьютере</span></div>
+          <div class="item"><span class="check">✓</span><span>Каталог ингредиентов и стартовый набор данных</span></div>
+          <div class="item"><span class="check">✓</span><span>Не требует установленного Python или Node.js</span></div>
+        </div>
+      </aside>
+    </section>
+    <section class="features" aria-label="Возможности">
+      <article class="feature"><h3>Рецепты</h3><p>Храните свои рецепты, сопоставляйте ингредиенты с каталогом и меняйте число порций.</p></article>
+      <article class="feature"><h3>КБЖУ</h3><p>Смотрите расчёты по известным пищевым данным; отсутствующие значения не подменяются нулями.</p></article>
+      <article class="feature"><h3>Покупки</h3><p>Собирайте корзину и учитывайте выбранные товары и цены магазинов.</p></article>
+    </section>
+  </main>
+  <footer><div class="wrap">Culinary App · Windows 10/11 · Данные приложения остаются на вашем устройстве</div></footer>
+  <script>
+    const pathParts = location.pathname.split('/').filter(Boolean)
+    const githubPagesHost = location.hostname.endsWith('.github.io')
+    const owner = githubPagesHost ? location.hostname.split('.')[0] : 'OWNER'
+    const repo = githubPagesHost
+      ? pathParts[0] || `${owner}.github.io`
+      : 'REPOSITORY'
+    const base = `https://github.com/${owner}/${repo}`
+    document.querySelector('#download').href = `${base}/releases/latest/download/CulinaryApp-Setup.exe`
+    document.querySelector('#releases').href = `${base}/releases`
+  </script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+fastapi>=0.115
+uvicorn[standard]>=0.32
+sqlalchemy>=2.0
+alembic>=1.14
+pydantic>=2.9
+pydantic-settings>=2.6
+httpx>=0.28
+httpx2>=0.28
+python-dotenv>=1.0
+pytest>=8.3
+pytest-asyncio>=0.24
+pyaterochka_api>=0.2.2,<0.3
+human_requests==0.2.2
+camoufox==0.5.9
+playwright==1.56.0
+selectolax==0.4.13

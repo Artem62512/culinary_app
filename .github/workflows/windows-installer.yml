@@ -1,0 +1,65 @@
+name: Build Windows installer
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: backend/requirements-build.txt
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+      - name: Install backend and packaging dependencies
+        run: python -m pip install -r backend/requirements-build.txt
+      - name: Package local application
+        run: python -m PyInstaller --noconfirm --clean --distpath dist --workpath build installer/CulinaryApp.spec
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $version = if ($env:GITHUB_REF -like "refs/tags/v*") {
+            $env:GITHUB_REF_NAME.Substring(1)
+          } else {
+            "0.1.$env:GITHUB_RUN_NUMBER"
+          }
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$version"
+          $compiler = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $compiler) { throw "Inno Setup compiler was not found." }
+          & $compiler "installer\CulinaryApp.iss" "/DAppVersion=$version" "/DSourceDir=$((Resolve-Path 'dist\CulinaryApp').Path)" "/DOutputDir=$((Join-Path $PWD 'dist\installer'))"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE." }
+      - name: Upload installer artifact
+        if: startsWith(github.ref, 'refs/tags/') == false
+        uses: actions/upload-artifact@v4
+        with:
+          name: CulinaryApp-Windows-Installer
+          path: dist/installer/CulinaryApp-Setup.exe
+          if-no-files-found: error
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/installer/CulinaryApp-Setup.exe
