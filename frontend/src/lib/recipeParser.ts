@@ -30,7 +30,7 @@ const UNIT_PATTERNS: Array<[RegExp, string]> = [
   [/^(?:веточ(?:ка|ки|ек))\s*(?=\S|$)/i, 'bunch'],
   [/^(?:ст\.?\s*(?:л\.?|ложк(?:а|и))|столов(?:ая|ые)\s+ложк(?:а|и))\s*(?=\S|$)/i, 'tbsp'],
   [/^(?:ч\.?\s*(?:л\.?|ложк(?:а|и))|чайная\s+ложк(?:а|и))\s*(?=\S|$)/i, 'tsp'],
-  [/^(?:щепотк(?:а|и))\s*(?=\S|$)/i, 'pinch'],
+  [/^(?:щепотк(?:а|и)|щеп\.?)\s*(?=\S|$)/i, 'pinch'],
 ]
 
 const QUANTITY_PATTERN =
@@ -54,6 +54,47 @@ function normalizeAmount(value: string): string {
 function isPhotoCaption(value: string): boolean {
   return /^(?:фото\s+(?:к\s+рецепту|приготовления\s+рецепта)|пошаговый\s+фото\s+рецепт)/i.test(
     value,
+  )
+}
+
+function isInstructionLine(value: string): boolean {
+  return (
+    /^\d+[.)]\s*\S/.test(value) ||
+    /^(?:смеш(?:ать|айте)|нарез(?:ать|айте)|измельч(?:ить|ите)|добав(?:ить|ьте)|взб(?:ить|ейте)|довед(?:ите|и)|прогрет(?:ь|ьте)|ввести|снять|убрат(?:ь|ьте)|скле(?:ить|йте)|отсад(?:ить|ите)|разогрет(?:ь|ьте)|размеш(?:ать|айте)|постав(?:ить|ьте)|охлад(?:ить|ите)|зал(?:ить|ейте)|выпек(?:ать|айте)|вар(?:ить|ите)|жар(?:ить|ьте)|готов(?:ить|ьте)|распредел(?:ить|ите)|перемеш(?:ать|айте)|перелож(?:ить|ите)|запек(?:ать|айте)|остав(?:ить|ьте)|пропека(?:ть|йте)|украс(?:ить|ьте)|пода(?:вать|вайте))\b/i.test(
+      value,
+    )
+  )
+}
+
+function looksLikeIngredientLine(value: string): boolean {
+  const cleaned = cleanLine(value)
+  if (!cleaned || isInstructionLine(cleaned)) return false
+  if (/^(?:количество порций|порции|выход|при склейке|вес(?:\s+\d|\s+\w)|время приготовления|время готовки|температура)\s*[:—-]/i.test(cleaned)) {
+    return false
+  }
+
+  if (/^\d+(?:[.,]\d+)?(?:\s*\/\s*\d+)?(?:\s*[-–—]\s*\d+(?:[.,]\d+)?(?:\s*\/\s*\d+)?)?\s*(?:г|гр|кг|мл|л|шт|стакан|зубчик|пучок|веточ|ст\.?\s*л|ч\.?\s*л|столовая ложка|чайная ложка|щеп)/i.test(cleaned)) {
+    return true
+  }
+
+  const separatorMatch = cleaned.match(/^(.+?)\s+[-–—:]\s*(.+)$/)
+  if (!separatorMatch) return false
+
+  const right = separatorMatch[2].trim()
+  return (
+    /^(?:по вкусу|щеп|щепотка|щепотки|\d+(?:[.,]\d+)?(?:\s*\/\s*\d+)?(?:\s*[-–—]\s*\d+(?:[.,]\d+)?(?:\s*\/\s*\d+)?)?(?:\s*(?:г|гр|грамм|кг|мл|литр|л|шт|стакан|зубчик|пучок|веточ|ст\.?\s*л|ч\.?\s*л|столовая ложка|чайная ложка|щеп))?\b)/i.test(
+      right,
+    )
+  )
+}
+
+function isIngredientSubheading(value: string): boolean {
+  if (!value || value.length > 80 || /\d/.test(value)) return false
+  if (/[:.!?]$/.test(value)) return false
+  if (isInstructionLine(value)) return false
+  return (
+    /^[А-ЯЁA-Z][А-ЯЁA-Z\s/-]{3,80}$/u.test(value) ||
+    /^(?:для|для приготовления|для начинки|для крема|для соуса|для теста|для глазури|для украшения)\b/i.test(value)
   )
 }
 
@@ -133,6 +174,22 @@ function parseIngredientLine(line: string): ParsedRecipeIngredient | null {
       amount: 'по вкусу',
       unit: 'to_taste',
       note: extracted.note,
+    }
+
+    // Формат без числового количества: "Лимонная кислота - щеп."
+    const unitOnlyMatch = value.match(/^(.+?)\s+[-–—:]\s*(.+)$/)
+    if (unitOnlyMatch) {
+      const rawName = unitOnlyMatch?.[1] ?? ''
+      const unitOnly = (unitOnlyMatch?.[2] ?? '').trim()
+      if (/^(?:щеп\.?|щепотка|щепотки)$/i.test(unitOnly)) {
+        const extractedName = extractNote(rawName.trim())
+        return {
+          name: extractedName.value,
+          amount: 'щепотка',
+          unit: 'pinch',
+          note: extractedName.note,
+        }
+      }
     }
   }
 
@@ -232,6 +289,18 @@ export function parseRecipeText(source: string): ParsedRecipe {
 
     if (!cleaned) continue
 
+    if (/^\d+[.)]\s*\S/.test(cleaned) || /^\d+[.)]\s*\S/.test(originalLine)) {
+      section = 'instructions'
+      instructionLines.push(cleaned)
+      continue
+    }
+
+    if (isInstructionLine(cleaned)) {
+      section = 'instructions'
+      instructionLines.push(cleaned)
+      continue
+    }
+
     // Подписи к фотографиям не относятся к содержанию рецепта.
     if (isPhotoCaption(cleaned)) continue
 
@@ -239,6 +308,38 @@ export function parseRecipeText(source: string): ParsedRecipe {
     if (/^пошаговый\s+фото\s+рецепт/i.test(cleaned)) {
       section = 'instructions'
       continue
+    }
+
+    // Подзаголовки составных частей («КОНФИ ИЗ БРУСНИКИ», «СЛИВОЧНЫЙ КРЕМ»)
+    // начинают новый блок ингредиентов даже если у них нет слова «Ингредиенты».
+    if (result.title && isIngredientSubheading(cleaned)) {
+      section = 'ingredients'
+      continue
+    }
+
+    // Выход и вес готового изделия относятся к метаданным, а не ингредиентам.
+    if (/^(?:выход|при склейке|вес\s+\d*)\b/i.test(cleaned)) {
+      if (/^при склейке\s*:?\s*(\d+)/i.test(cleaned)) {
+        const match = cleaned.match(/^при склейке\s*:?\s*(\d+)/i)
+        if (match) result.servings = Number(match[1])
+      }
+      const outputLabel = cleaned.replace(/^выход\s*:?\s*/i, '').trim()
+      if (cleaned && !descriptionLines.includes(cleaned)) {
+        descriptionLines.push(cleaned)
+      }
+      if (outputLabel) continue
+      continue
+    }
+
+    // Формат заметок «Название - количество единица» распознаётся
+    // даже без общего заголовка «Ингредиенты».
+    if (section !== 'instructions' && /^.+?\s+[-–—:]\s*.+$/.test(cleaned)) {
+      const ingredient = parseIngredientLine(cleaned)
+      if (ingredient) {
+        section = 'ingredients'
+        result.ingredients.push(ingredient)
+        continue
+      }
     }
 
     // Заголовки разделов.
@@ -306,6 +407,17 @@ export function parseRecipeText(source: string): ParsedRecipe {
     }
 
     if (section === 'before') {
+      // Распознавание состава без общего заголовка:
+      // поддерживаются «50 г брусники» и «Брусника - 50 г».
+      if (looksLikeIngredientLine(cleaned)) {
+        const ingredient = parseIngredientLine(cleaned)
+        if (ingredient) {
+          section = 'ingredients'
+          result.ingredients.push(ingredient)
+          continue
+        }
+      }
+
       if (!result.title) {
         result.title = cleaned.replace(/^["«]|["»]$/g, '').trim()
       } else {

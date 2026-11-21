@@ -98,8 +98,15 @@ def is_exact_universal_match(universal: Product, item: dict) -> bool:
     return False
 
 
-async def import_products(limit: int = 20) -> dict:
+async def import_products(
+    limit: int = 20,
+    offset: int = 0,
+    batch_size: int | None = None,
+) -> dict:
     inserted_skus = updated_skus = inserted_prices = 0
+    searched_products = 0
+    matched_products = 0
+    unmatched_products = 0
 
     async with PyaterochkaAPI(headless=True) as api:
         # pyaterochka_api 0.2.2 and human_requests 0.2.2 need these wrappers
@@ -120,61 +127,16 @@ async def import_products(limit: int = 20) -> dict:
             raise RuntimeError("Пятёрочка: не удалось определить SAP-код магазина")
 
         with SessionLocal() as db:
-            universals = (
+            query = (
                 db.query(Product)
-                .join(RecipeIngredient, RecipeIngredient.product_id == Product.id)
                 .filter(Product.status == "active")
-                .distinct()
-                .all()
+                .order_by(Product.id)
             )
-            if not universals:
-                common_names = (
-                    "Молоко",
-                    "Мука",
-                    "Яйцо",
-                    "Сахар",
-                    "Масло",
-                    "Картофель",
-                    "Курица",
-                    "Говядина",
-                    "Рис",
-                    "Макароны",
-                    "Сметана",
-                    "Сыр",
-                    "Хлеб",
-                    "Помидор",
-                    "Огурец",
-                    "Морковь",
-                    "Лук",
-                    "Чеснок",
-                )
-                universals_by_id: dict[int, Product] = {}
-                for common_name in common_names:
-                    matches = (
-                        db.query(Product)
-                        .filter(
-                            Product.status == "active",
-                            Product.base_name.ilike(f"%{common_name}%"),
-                        )
-                        .limit(20)
-                        .all()
-                    )
-                    if not matches:
-                        matches = (
-                            db.query(Product)
-                            .filter(
-                                Product.status == "active",
-                                Product.name.ilike(f"%{common_name}%"),
-                            )
-                            .limit(20)
-                            .all()
-                        )
-                    for match in matches:
-                        universals_by_id[match.id] = match
-                universals = list(universals_by_id.values())
+            universals = query.offset(offset).limit(batch_size).all() if batch_size is not None else query.offset(offset).all()
             cache: dict[int, list[dict]] = {}
 
             for universal in universals:
+                searched_products += 1
                 query = universal.name
                 response = await api.Catalog.search(
                     sap_code_store_id=sap_code,
@@ -183,6 +145,7 @@ async def import_products(limit: int = 20) -> dict:
                     limit=limit,
                 )
                 if response.status_code != 200:
+                    unmatched_products += 1
                     continue
                 payload = response.json()
                 products = payload.get("products") or []
@@ -193,6 +156,15 @@ async def import_products(limit: int = 20) -> dict:
                     if item.get("is_available") is not False
                     and is_exact_universal_match(universal, item)
                 ]
+                if exact_items:
+                    matched_products += 1
+                else:
+                    unmatched_products += 1
+                print(
+                    f"[{searched_products}/{len(universals)}] "
+                    f"{universal.name}: найдено точных SKU {len(exact_items)}",
+                    flush=True,
+                )
 
                 for item in exact_items:
                     plu = item.get("plu")
@@ -257,6 +229,9 @@ async def import_products(limit: int = 20) -> dict:
 
     return {
         "sap_code": sap_code,
+        "catalog_products_searched": searched_products,
+        "catalog_products_matched": matched_products,
+        "catalog_products_unmatched": unmatched_products,
         "store_skus_inserted": inserted_skus,
         "store_skus_updated": updated_skus,
         "price_observations_inserted": inserted_prices,
@@ -374,4 +349,19 @@ async def import_one_product(product_id: int, limit: int = 10) -> dict:
 
 
 if __name__ == "__main__":
-    print(asyncio.run(import_products()))
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Импорт точных товаров и цен Пятёрочки")
+    parser.add_argument("--limit", type=int, default=20)
+    parser.add_argument("--offset", type=int, default=0)
+    parser.add_argument("--batch-size", type=int, default=None)
+    args = parser.parse_args()
+    print(
+        asyncio.run(
+            import_products(
+                limit=args.limit,
+                offset=args.offset,
+                batch_size=args.batch_size,
+            )
+        )
+    )

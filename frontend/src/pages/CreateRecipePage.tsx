@@ -62,6 +62,15 @@ function parseAmountText(
     }
   }
 
+  // Нечисловая мера «щепотка» сохраняется как неточное количество.
+  if (unit === 'pinch' && /^(?:щепотка|щепотки|щеп\.?)$/i.test(text)) {
+    return {
+      amount: 0,
+      amount_text: 'щепотка',
+      amount_is_exact: false,
+    }
+  }
+
   if (!text) return null
 
   const parseNumber = (part: string): number | null => {
