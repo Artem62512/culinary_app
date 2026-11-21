@@ -30,11 +30,16 @@ type CartItem = {
   price_override: number | null
   price_basis_unit: string | null
   catalog_price_per_basis: number | null
+  package_amount: number | null
+  package_unit: string | null
+  package_price: number | null
+  package_price_override: number | null
+  package_count: number | null
 }
 
 function CartItemRow({ item, onUpdate, onRemove, onSavePrice }: {
   item: CartItem
-  onUpdate: (id: number, patch: { amount?: number; price_override?: number | null; selected_store_product_id?: number | null }) => void
+  onUpdate: (id: number, patch: { amount?: number; price_override?: number | null; package_price_override?: number | null; selected_store_product_id?: number | null }) => void
   onRemove: (id: number) => void
   onSavePrice: (id: number) => void
 }) {
@@ -47,6 +52,17 @@ function CartItemRow({ item, onUpdate, onRemove, onSavePrice }: {
         : '',
   )
   const [priceChanged, setPriceChanged] = useState(false)
+  const [packagePrice, setPackagePrice] = useState(
+    item.package_price_override !== null
+      ? String(item.package_price_override)
+      : item.package_price !== null
+        ? String(item.package_price)
+        : '',
+  )
+  const [packagePriceChanged, setPackagePriceChanged] = useState(false)
+  const [priceMode, setPriceMode] = useState<'basis' | 'package'>(
+    item.package_price_override !== null ? 'package' : 'basis',
+  )
   const { data: offers = [] } = useQuery({
     queryKey: ['store-products', item.product_id],
     queryFn: () => api.getStoreProducts(item.product_id),
@@ -80,31 +96,126 @@ function CartItemRow({ item, onUpdate, onRemove, onSavePrice }: {
             className="mt-1 h-8"
           />
         </label>
-        <label className="text-xs text-muted-foreground">
-          Цена за {basis}, ₽
-          <Input
-            type="number" min="0" step="any" value={price}
-            placeholder="По каталогу"
-            onChange={(event) => {
-              setPrice(event.target.value)
-              setPriceChanged(true)
-            }}
-            onBlur={() => {
-              if (!priceChanged) return
-              if (!price.trim()) {
-                if (item.price_override !== null) onUpdate(item.id, { price_override: null })
+        {item.package_amount !== null && item.package_unit ? (
+          <label className="text-xs text-muted-foreground">
+            Режим цены
+            <select
+              className="mt-1 h-8 w-full rounded-md border bg-background px-2 text-sm"
+              value={priceMode}
+              onChange={(event) => {
+                const nextMode = event.target.value as 'basis' | 'package'
+                setPriceMode(nextMode)
+                if (nextMode === 'basis') {
+                  onUpdate(item.id, { package_price_override: null })
+                } else {
+                  onUpdate(item.id, { price_override: null })
+                }
+              }}
+            >
+              <option value="basis">За {basis}</option>
+              <option value="package">За упаковку</option>
+            </select>
+          </label>
+        ) : (
+          <label className="text-xs text-muted-foreground">
+            Цена за {basis}, ₽
+            <Input
+              type="number" min="0" step="any" value={price}
+              placeholder="По каталогу"
+              onChange={(event) => {
+                setPrice(event.target.value)
+                setPriceChanged(true)
+              }}
+              onBlur={() => {
+                if (!priceChanged) return
+                if (!price.trim()) {
+                  if (item.price_override !== null) onUpdate(item.id, { price_override: null })
+                  setPriceChanged(false)
+                  return
+                }
+                const next = Number(price)
+                if (Number.isFinite(next) && next >= 0 && next !== item.price_override) onUpdate(item.id, { price_override: next })
+                else setPrice(item.price_override === null ? '' : String(item.price_override))
                 setPriceChanged(false)
-                return
-              }
-              const next = Number(price)
-              if (Number.isFinite(next) && next >= 0 && next !== item.price_override) onUpdate(item.id, { price_override: next })
-              else setPrice(item.price_override === null ? '' : String(item.price_override))
-              setPriceChanged(false)
-            }}
-            className="mt-1 h-8"
-          />
-        </label>
+              }}
+              className="mt-1 h-8"
+            />
+          </label>
+        )}
       </div>
+      {item.package_amount !== null && item.package_unit && (
+        <div className="rounded-md border bg-background p-2 space-y-2">
+          <div className="flex justify-between gap-2 text-xs text-muted-foreground">
+            <span>Упаковка: {item.package_amount} {item.package_unit}</span>
+            {item.package_count !== null && <span>Нужно упаковок: {item.package_count}</span>}
+          </div>
+          {priceMode === 'basis' ? (
+            <label className="text-xs text-muted-foreground">
+              Цена за {basis}, ₽
+              <Input
+                type="number"
+                min="0"
+                step="any"
+                value={price}
+                placeholder="По каталогу"
+                onChange={(event) => {
+                  setPrice(event.target.value)
+                  setPriceChanged(true)
+                }}
+                onBlur={() => {
+                  if (!priceChanged) return
+                  if (!price.trim()) {
+                    if (item.price_override !== null) onUpdate(item.id, { price_override: null })
+                    setPriceChanged(false)
+                    return
+                  }
+                  const next = Number(price)
+                  if (Number.isFinite(next) && next >= 0 && next !== item.price_override) {
+                    onUpdate(item.id, { price_override: next })
+                  } else {
+                    setPrice(item.price_override === null ? '' : String(item.price_override))
+                  }
+                  setPriceChanged(false)
+                }}
+                className="mt-1 h-8"
+              />
+            </label>
+          ) : (
+            <label className="text-xs text-muted-foreground">
+              Цена за упаковку, ₽
+              <Input
+                type="number"
+                min="0"
+                step="any"
+                value={packagePrice}
+                placeholder="По предложению"
+                onChange={(event) => {
+                  setPackagePrice(event.target.value)
+                  setPackagePriceChanged(true)
+                }}
+                onBlur={() => {
+                  if (!packagePriceChanged) return
+                  if (!packagePrice.trim()) {
+                    if (item.package_price_override !== null) {
+                      onUpdate(item.id, { package_price_override: null })
+                    }
+                    setPackagePriceChanged(false)
+                    return
+                  }
+                  const next = Number(packagePrice)
+                  if (Number.isFinite(next) && next >= 0 && next !== item.package_price_override) {
+                    onUpdate(item.id, { package_price_override: next })
+                  } else {
+                    setPackagePrice(item.package_price_override === null ? '' : String(item.package_price_override))
+                  }
+                  setPackagePriceChanged(false)
+                }}
+                className="mt-1 h-8"
+              />
+            </label>
+          )}
+        </div>
+      )}
       {offers.length > 0 && (
         <label className="block text-xs text-muted-foreground">
           Источник предложения
@@ -151,7 +262,7 @@ export function CartSheet({ trigger }: { trigger: React.ReactNode }) {
 
   const refreshCart = () => qc.invalidateQueries({ queryKey: ['cart'] })
   const updateMutation = useMutation({
-    mutationFn: ({ id, patch }: { id: number; patch: { amount?: number; price_override?: number | null; selected_store_product_id?: number | null } }) =>
+    mutationFn: ({ id, patch }: { id: number; patch: { amount?: number; price_override?: number | null; package_price_override?: number | null; selected_store_product_id?: number | null } }) =>
       api.updateCartItem(id, patch),
     onSuccess: refreshCart,
     onError: (err: Error) => toast.error('Не удалось изменить корзину: ' + err.message),
@@ -205,7 +316,7 @@ export function CartSheet({ trigger }: { trigger: React.ReactNode }) {
             <ul className="space-y-5">
               {cart.items.map((item: CartItem) => (
                 <CartItemRow
-                  key={`${item.id}-${item.amount}-${item.price_override ?? 'catalog'}`}
+                  key={`${item.id}-${item.amount}-${item.price_override ?? 'catalog'}-${item.package_price_override ?? 'package-catalog'}`}
                   item={item}
                   onUpdate={(id, patch) => updateMutation.mutate({ id, patch })}
                   onRemove={(id) => removeMutation.mutate(id)}

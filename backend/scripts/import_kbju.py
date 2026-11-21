@@ -192,3 +192,44 @@ def refresh_one_product(product_id: int) -> dict:
             "source": source,
         }
 
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Подтянуть КБЖУ для базы товаров")
+    parser.add_argument("--limit", type=int, default=100)
+    parser.add_argument("--offset", type=int, default=0)
+    args = parser.parse_args()
+
+    with SessionLocal() as db:
+        products = (
+            db.query(Product)
+            .filter(Product.status == "active", Product.kbju_status != "full")
+            .order_by(Product.kbju_status.asc(), Product.id)
+            .offset(args.offset)
+            .limit(args.limit)
+            .all()
+        )
+        product_ids = [product.id for product in products]
+
+    processed = 0
+    updated = 0
+    full = 0
+    for product_id in product_ids:
+        result = refresh_one_product(product_id)
+        processed += 1
+        updated += result["updated_fields"]
+        if result["status"] == "full":
+            full += 1
+        print(
+            f"[{processed}/{len(product_ids)}] "
+            f"{result['status']}: обновлено полей {result['updated_fields']}",
+            flush=True,
+        )
+
+    print({
+        "processed": processed,
+        "updated_fields": updated,
+        "full_after_refresh": full,
+    })
+

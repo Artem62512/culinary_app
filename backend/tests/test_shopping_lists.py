@@ -102,6 +102,80 @@ def test_cart_rejects_offer_from_another_universal_product(db_session):
     assert exc.value.status_code == 422
 
 
+def test_cart_piece_package_counts_round_up_for_eggs(db_session):
+    product = Product(name="Яйцо куриное", status="active")
+    db_session.add(product)
+    db_session.flush()
+    offer = StoreProduct(
+        universal_product_id=product.id,
+        name="Яйцо куриное, 10 шт",
+        store_name="Пятёрочка",
+        package_amount=10,
+        package_unit="шт",
+        status="active",
+    )
+    db_session.add(offer)
+    db_session.flush()
+    db_session.add(StoreProductPrice(
+        store_product_id=offer.id,
+        price=100,
+        currency="RUB",
+        source="pyaterochka",
+    ))
+    db_session.commit()
+
+    cart = add_to_cart(product.id, amount=2, unit="pcs", db=db_session)
+    assert cart.items[0].package_count == 1
+    assert cart.items[0].cost == 100
+
+    updated = update_cart_item(
+        cart.items[0].id,
+        ShoppingCartItemUpdate(amount=12),
+        db_session,
+    )
+    assert updated.items[0].package_count == 2
+    assert updated.items[0].cost == 200
+
+
+def test_cart_package_price_counts_required_packages(db_session):
+    product = Product(name="Мука", status="active")
+    db_session.add(product)
+    db_session.flush()
+    offer = StoreProduct(
+        universal_product_id=product.id,
+        name="Мука, 1 кг",
+        store_name="Пятёрочка",
+        package_amount=1,
+        package_unit="кг",
+        status="active",
+    )
+    db_session.add(offer)
+    db_session.flush()
+    db_session.add(StoreProductPrice(
+        store_product_id=offer.id,
+        price=95,
+        currency="RUB",
+        source="pyaterochka",
+    ))
+    db_session.commit()
+
+    cart = add_to_cart(product.id, amount=2500, unit="g", db=db_session)
+    item = cart.items[0]
+    updated = update_cart_item(
+        item.id,
+        ShoppingCartItemUpdate(
+            selected_store_product_id=offer.id,
+            package_price_override=100,
+        ),
+        db_session,
+    )
+
+    assert updated.items[0].package_amount == 1
+    assert updated.items[0].package_unit == "кг"
+    assert updated.items[0].package_count == 3
+    assert updated.items[0].cost == 300
+
+
 def test_saving_cart_price_appends_history_only_when_requested(db_session):
     product = Product(name="Молоко 3,2%", status="active")
     db_session.add(product)

@@ -57,10 +57,44 @@ def _quote_for_cart_item(db: Session, item: ShoppingListItem, product: Product) 
     return get_latest_price_quote(db, product.id)
 
 
-def _cost_for_amount(amount: float, unit: str, quote: dict | None, override: float | None) -> float | None:
+def _package_details(amount: float, unit: str, quote: dict | None) -> tuple[float, str, float, int] | None:
+    if not quote:
+        return None
+    package_amount = quote.get("package_amount")
+    package_unit = quote.get("package_unit")
+    package_price = quote.get("package_price")
+    if package_amount is None or package_unit is None or package_price is None:
+        return None
+    package = PACKAGE_UNITS.get(str(package_unit).strip().casefold())
+    family = UNIT_FAMILY.get(unit)
+    if package is None or family is None or package[0] != family:
+        return None
+    base_amount = amount * UNIT_FACTORS[unit] if family != "pieces" else amount
+    package_base_amount = float(package_amount) * package[1]
+    if package_base_amount <= 0:
+        return None
+    count = max(1, math.ceil(base_amount / package_base_amount - 1e-9))
+    return float(package_amount), str(package_unit), float(package_price), count
+
+
+def _cost_for_amount(
+    amount: float,
+    unit: str,
+    quote: dict | None,
+    override: float | None,
+    package_price_override: float | None = None,
+) -> float | None:
+    if package_price_override is not None:
+        package = _package_details(amount, unit, quote)
+        if package is not None:
+            return round(package_price_override * package[3], 2)
     family = UNIT_FAMILY.get(unit)
     if family is None:
         return None
+    if family == "pieces" and override is None:
+        package = _package_details(amount, unit, quote)
+        if package is not None:
+            return round(package[2] * package[3], 2)
     rate_key = {"weight": "price_per_kg", "volume": "price_per_liter", "pieces": "price_per_piece"}[family]
     rate = override if override is not None else (quote or {}).get(rate_key)
     if rate is None:
@@ -84,14 +118,30 @@ def _item_output(item: ShoppingListItem, product: Product, quote: dict | None) -
             "pieces": "price_per_piece",
         }.get(family))
 
+    package = _package_details(item.amount, item.unit, quote)
+    package_amount = package[0] if package else None
+    package_unit = package[1] if package else None
+    catalog_package_price = package[2] if package else None
+    package_count = package[3] if package else None
+
     return ShoppingListItemOut(
         id=item.id,
         product_id=product.id,
         product_name=product.name,
         amount=round(item.amount, 2),
         unit=item.unit,
-        cost=_cost_for_amount(item.amount, item.unit, quote, item.price_override),
-        price_source="Изменена в корзине" if item.price_override is not None else (quote or {}).get("price_source"),
+        cost=_cost_for_amount(
+            item.amount,
+            item.unit,
+            quote,
+            item.price_override,
+            item.package_price_override,
+        ),
+        price_source=(
+            "Изменена в корзине"
+            if item.price_override is not None or item.package_price_override is not None
+            else (quote or {}).get("price_source")
+        ),
         observed_at=(quote or {}).get("observed_at"),
         store_name=(quote or {}).get("store_name"),
         store_product_name=(quote or {}).get("store_product_name"),
@@ -103,6 +153,11 @@ def _item_output(item: ShoppingListItem, product: Product, quote: dict | None) -
             "weight": "кг", "volume": "л", "pieces": "шт"
         }.get(UNIT_FAMILY.get(item.unit, ""), None),
         catalog_price_per_basis=round(catalog_price, 2) if catalog_price is not None else None,
+        package_amount=package_amount,
+        package_unit=package_unit,
+        package_price=catalog_package_price,
+        package_price_override=item.package_price_override,
+        package_count=package_count,
     )
 
 
@@ -286,6 +341,12 @@ def update_cart_item(item_id: int, payload: ShoppingCartItemUpdate, db: Session 
         item.unit = payload.unit
     if "price_override" in payload.model_fields_set:
         item.price_override = payload.price_override
+        if payload.price_override is not None:
+            item.package_price_override = None
+    if "package_price_override" in payload.model_fields_set:
+        item.package_price_override = payload.package_price_override
+        if payload.package_price_override is not None:
+            item.price_override = None
     if "selected_store_product_id" in payload.model_fields_set:
         item.selected_store_product_id = payload.selected_store_product_id
 
@@ -299,7 +360,7 @@ def save_cart_price_to_history(item_id: int, db: Session = Depends(get_db)):
     item = db.get(ShoppingListItem, item_id)
     if item is None:
         raise HTTPException(404, "Cart item not found")
-    if item.price_override is None:
+    if item.price_override is None and item.package_price_override is None:
         raise HTTPException(409, "Сначала укажите новую цену для этой корзины")
     product = db.get(Product, item.product_id)
     if product is None:
@@ -317,6 +378,19 @@ def save_cart_price_to_history(item_id: int, db: Session = Depends(get_db)):
     family = UNIT_FAMILY.get(item.unit)
     if package is None or family is None or package[0] != family:
         raise HTTPException(422, "Единица цены не совместима с выбранным предложением")
+    if item.package_price_override is not None:
+        if item.package_price_override <= 0:
+            raise HTTPException(422, "Цена упаковки в истории должна быть больше нуля")
+        db.add(StoreProductPrice(
+            store_product_id=store_product.id,
+            price=item.package_price_override,
+            currency="RUB",
+            region=store_product.region,
+            source="manual",
+        ))
+        db.commit()
+        sl = db.get(ShoppingList, item.shopping_list_id)
+        return _summarize_list(sl, db)
     if item.price_override <= 0:
         raise HTTPException(422, "Цена в истории должна быть больше нуля")
     package_amount = float(store_product.package_amount) * package[1]

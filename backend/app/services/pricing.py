@@ -71,6 +71,9 @@ def get_store_product_quote(db: Session, store_product_id: int) -> dict | None:
         "store_product_name": store_product.name,
         "manufacturer": store_product.manufacturer,
         "price_basis_unit": {"weight": "кг", "volume": "л", "pieces": "шт"}[family],
+        "package_amount": float(store_product.package_amount),
+        "package_unit": (store_product.package_unit or "").strip(),
+        "package_price": float(price.price),
     }
 
 
@@ -148,6 +151,9 @@ def get_latest_price_quote(db: Session, universal_product_id: int) -> dict | Non
             "store_product_name": store_product.name,
             "manufacturer": store_product.manufacturer,
             "price_basis_unit": {"weight": "кг", "volume": "л", "pieces": "шт"}[family],
+            "package_amount": float(store_product.package_amount),
+            "package_unit": (store_product.package_unit or "").strip(),
+            "package_price": float(price.price),
         }
         candidates.append((_store_priority(store_product.store_name), price.observed_at, quote))
 

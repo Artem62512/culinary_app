@@ -33,6 +33,11 @@ class ShoppingListItemOut(BaseModel):
     price_override: float | None = None
     price_basis_unit: str | None = None
     catalog_price_per_basis: float | None = None
+    package_amount: float | None = None
+    package_unit: str | None = None
+    package_price: float | None = None
+    package_price_override: float | None = None
+    package_count: int | None = None
 
 
 class ShoppingListOut(BaseModel):
@@ -59,4 +64,5 @@ class ShoppingCartItemUpdate(BaseModel):
     amount: float | None = Field(default=None, gt=0, le=100000, allow_inf_nan=False)
     unit: str | None = Field(default=None, pattern="^(g|kg|ml|l|pcs|cup|clove|bunch|tbsp|tsp|pinch|to_taste)$")
     price_override: float | None = Field(default=None, ge=0, le=10000000, allow_inf_nan=False)
+    package_price_override: float | None = Field(default=None, ge=0, le=10000000, allow_inf_nan=False)
     selected_store_product_id: int | None = Field(default=None, gt=0)
