@@ -31,8 +31,16 @@ if (-not (Test-Path $pythonExe)) {
     throw "Не найден backend\.venv\Scripts\python.exe"
 }
 
+if (-not (Test-Path (Join-Path $backendRoot ".env"))) {
+    throw "Не найден backend\.env. Скопируйте backend\.env.example и задайте APP_USERNAME и APP_PASSWORD."
+}
+
 if (-not (Test-Path (Join-Path $frontendRoot "package.json"))) {
     throw "Не найдена папка frontend"
+}
+
+if (-not (Test-Path (Join-Path $frontendRoot "node_modules\vite\bin\vite.js"))) {
+    throw "Не найдены зависимости frontend. Выполните npm ci в папке frontend."
 }
 
 if (-not (Test-PortListening -Port 8000)) {

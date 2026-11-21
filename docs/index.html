@@ -55,18 +55,18 @@
         <h1>Планируйте блюда и покупки в одном месте</h1>
         <p class="lead">Создавайте рецепты, пересчитывайте ингредиенты на нужное число порций и собирайте список покупок с расчётом КБЖУ и стоимости.</p>
         <div class="actions">
-          <a class="button" id="download" href="https://github.com/" rel="noopener">Скачать для Windows</a>
-          <a class="button secondary" id="releases" href="https://github.com/" rel="noopener">Все версии</a>
+          <a class="button" id="download" href="https://github.com/" rel="noopener">Скачать ZIP для Windows</a>
+          <a class="button secondary" id="repository" href="https://github.com/" rel="noopener">Открыть проект на GitHub</a>
         </div>
-        <p class="notice">Установщик запускает frontend и backend на вашем компьютере. База SQLite хранится локально; данные не загружаются на этот сайт. Для обновления цен и КБЖУ нужен интернет.</p>
+        <p class="notice">В ZIP есть batch-файлы запуска frontend и backend. Для первого запуска нужны Python 3.14, Node.js 22 и установка зависимостей по инструкции в README. База SQLite хранится локально; для обновления цен и КБЖУ нужен интернет.</p>
       </div>
       <aside class="card">
-        <h2>Что входит в установщик</h2>
+        <h2>Что входит в ZIP</h2>
         <div class="list">
-          <div class="item"><span class="check">✓</span><span>Frontend и backend запускаются на устройстве пользователя</span></div>
-          <div class="item"><span class="check">✓</span><span>Отдельная локальная база SQLite на каждом компьютере</span></div>
-          <div class="item"><span class="check">✓</span><span>Каталог ингредиентов и стартовый набор данных</span></div>
-          <div class="item"><span class="check">✓</span><span>Не требует установленного Python или Node.js</span></div>
+          <div class="item"><span class="check">✓</span><span>Отдельные BAT-файлы для backend и frontend</span></div>
+          <div class="item"><span class="check">✓</span><span>Общий запуск через Culinary App.bat</span></div>
+          <div class="item"><span class="check">✓</span><span>Первичная база SQLite создаётся локально</span></div>
+          <div class="item"><span class="check">✓</span><span>Пошаговая инструкция по настройке в README</span></div>
         </div>
       </aside>
     </section>
@@ -85,8 +85,8 @@
       ? pathParts[0] || `${owner}.github.io`
       : 'REPOSITORY'
     const base = `https://github.com/${owner}/${repo}`
-    document.querySelector('#download').href = `${base}/releases/latest/download/CulinaryApp-Setup.exe`
-    document.querySelector('#releases').href = `${base}/releases`
+    document.querySelector('#download').href = `${base}/archive/refs/heads/main.zip`
+    document.querySelector('#repository').href = base
   </script>
 </body>
 </html>

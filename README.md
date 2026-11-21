@@ -18,37 +18,41 @@
 
 ## 🛠 Технологический стек
 
-**Бэкенд:** Python 3.13, FastAPI, SQLAlchemy, SQLite, Pydantic.
-**Фронтенд:** React 18, Vite, TypeScript, Tailwind CSS, shadcn/ui, TanStack Query, Motion (анимации), Sonner (уведомления).
+**Бэкенд:** Python 3.14, FastAPI, SQLAlchemy, SQLite, Pydantic.
+**Фронтенд:** React 19, Vite 8, TypeScript 7, Tailwind CSS 4, shadcn/ui, TanStack Query, Motion (анимации), Sonner (уведомления).
 
-## 📦 Запуск проекта
+## Запуск на Windows
 
-### Бэкенд
-cd backend
-copy .env.example .env
-# задайте APP_USERNAME и APP_PASSWORD в .env
-python -m venv .venv
-.\.venv\Scripts\activate
-pip install -r requirements.txt
-python -m uvicorn app.main:app --reload --port 8000
+ZIP-архив исходников содержит batch-файлы для запуска, но требует установленный Python 3.14 и Node.js 22. Первоначальная установка зависимостей выполняется с подключением к интернету.
 
-### Фронтенд
-cd frontend
-npm ci
-npm run dev
+1. Создайте виртуальное окружение и установите backend-зависимости из корня проекта:
 
-## Установка для Windows
+   ```bat
+   py -3.14 -m venv backend\.venv
+   backend\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+   copy backend\.env.example backend\.env
+   ```
 
-Windows-установщик включает frontend и backend, не требует установленного Python или Node.js и создаёт отдельную базу SQLite для текущего пользователя Windows. База и локальные данные сохраняются в `%LOCALAPPDATA%\CulinaryApp`; удаление приложения не удаляет базу и рецепты.
+2. Откройте `backend\.env` и задайте значения `APP_USERNAME` и `APP_PASSWORD`.
+3. Установите frontend-зависимости:
+
+   ```bat
+   cd frontend
+   npm ci
+   cd ..
+   ```
+
+4. Дважды щёлкните `Culinary App.bat`, чтобы запустить backend и frontend вместе. Для раздельного запуска используйте `start_backend.bat` и `start_frontend.bat`.
+
+В режиме разработки SQLite-файл создаётся локально в `backend\culinary.db` (если путь не переопределён в `.env`). Базы данных не включаются в ZIP-архив проекта.
 
 В GitHub Actions:
 
 1. В настройках репозитория включите GitHub Pages с источником **GitHub Actions**.
 2. При push в ветку `main` страница-витрина публикуется из `docs/`.
-3. Создайте и отправьте тег вида `v1.0.0`, чтобы workflow собрал Windows-установщик и приложил его к GitHub Release.
-4. Ссылка скачивания на странице ведёт на установщик последнего опубликованного релиза.
+3. Batch-файлы доступны в ZIP-архиве исходников. Workflow сборки Windows-установщика остаётся настроен на теги `v*`.
 
-Сборка установщика выполняется в Windows runner и включает Python-зависимости и frontend. Для получения новых цен и данных КБЖУ во время работы требуется подключение к интернету; база, рецепты и корзина остаются на устройстве пользователя.
+Для получения новых цен и данных КБЖУ во время работы требуется подключение к интернету; база, рецепты и корзина остаются на устройстве пользователя.
 
 
 ## Безопасность
