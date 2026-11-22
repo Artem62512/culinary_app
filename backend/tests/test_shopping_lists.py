@@ -289,6 +289,22 @@ def test_manual_package_size_can_use_different_units_with_recipe_equivalent(db_s
     assert more_than_one_package.package_count == 2
     assert more_than_one_package.cost == 300
 
+    basis_mode = update_cart_item(
+        cart.items[0].id,
+        ShoppingCartItemUpdate(price_mode="basis"),
+        db_session,
+    ).items[0]
+    assert basis_mode.price_basis_unit == "л"
+    assert basis_mode.catalog_price_per_basis == 150
+    assert basis_mode.cost == 187.5
+
+    edited_basis_price = update_cart_item(
+        cart.items[0].id,
+        ShoppingCartItemUpdate(price_override=200),
+        db_session,
+    ).items[0]
+    assert edited_basis_price.cost == 250
+
 
 def test_package_equivalent_requires_package_dimensions(db_session):
     product = Product(name="Масло подсолнечное", status="active")

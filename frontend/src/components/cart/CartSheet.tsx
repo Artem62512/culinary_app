@@ -73,6 +73,11 @@ function CartItemRow({ item, onUpdate, onRemove, onSavePrice }: {
       ? ['мл', 'л']
       : item.unit === 'pcs' ? ['шт'] : []
   const supportsBasisPrice = ['g', 'kg', 'ml', 'l', 'pcs'].includes(item.unit)
+  const canSelectBasisPrice = supportsBasisPrice || (
+    item.package_amount !== null
+    && item.package_amount_in_recipe_unit_override !== null
+  )
+  const showPriceMode = supportsBasisPrice || item.package_amount !== null
   const [price, setPrice] = useState(
     item.price_override !== null
       ? String(item.price_override)
@@ -181,7 +186,7 @@ function CartItemRow({ item, onUpdate, onRemove, onSavePrice }: {
           />
           <span className="mt-1 block">При покупке упаковками это количество не меняется.</span>
         </label>
-        {supportsBasisPrice ? (
+        {showPriceMode ? (
           <label className="text-xs text-muted-foreground">
             Режим цены
             <select
@@ -192,11 +197,11 @@ function CartItemRow({ item, onUpdate, onRemove, onSavePrice }: {
                 onUpdate(item.id, { price_mode: nextMode })
               }}
             >
-              <option value="basis">За {basis}</option>
+              <option value="basis" disabled={!canSelectBasisPrice}>За {basis}</option>
               <option value="package">За упаковку</option>
             </select>
           </label>
-        ) : <div className="text-xs text-muted-foreground">Цена для этой меры рассчитывается по упаковке.</div>}
+        ) : <div className="text-xs text-muted-foreground">Укажите упаковку и эквивалент для цены за {basis}.</div>}
       </div>
       <div className="rounded-md border bg-background p-2 space-y-2">
           <div className="flex justify-between gap-2 text-xs text-muted-foreground">
@@ -248,7 +253,7 @@ function CartItemRow({ item, onUpdate, onRemove, onSavePrice }: {
               />
             </label>
           )}
-          {item.price_mode === 'basis' && supportsBasisPrice ? (
+          {item.price_mode === 'basis' && canSelectBasisPrice ? (
             <label className="text-xs text-muted-foreground">
               Цена за {basis}, ₽
               <Input

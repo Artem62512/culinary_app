@@ -93,6 +93,25 @@ def _package_details(
     )
 
 
+def _package_basis_info(package_amount: float, package_unit: str) -> tuple[str, str, float] | None:
+    package = PACKAGE_UNITS.get(package_unit.strip().casefold())
+    if package is None:
+        return None
+    family, factor = package
+    quantity = package_amount * factor
+    if family in ("weight", "volume"):
+        quantity /= 1000
+    if quantity <= 0:
+        return None
+    rate_key = {
+        "weight": "price_per_kg",
+        "volume": "price_per_liter",
+        "pieces": "price_per_piece",
+    }[family]
+    basis_unit = {"weight": "кг", "volume": "л", "pieces": "шт"}[family]
+    return rate_key, basis_unit, quantity
+
+
 def _cost_for_amount(
     amount: float,
     unit: str,
@@ -118,15 +137,49 @@ def _cost_for_amount(
         package_price = package_price_override if package_price_override is not None else package[2]
         return round(package_price * package[3], 2) if package_price is not None else None
     family = UNIT_FAMILY.get(unit)
+    if family is None:
+        if (
+            price_mode != "basis"
+            or package is None
+            or package_amount_in_recipe_unit_override is None
+        ):
+            return None
+        basis_info = _package_basis_info(package[0], package[1])
+        if basis_info is None:
+            return None
+        rate_key, _, package_quantity = basis_info
+        rate = override if override is not None else (quote or {}).get(rate_key)
+        if rate is None:
+            package_price = (
+                package_price_override
+                if package_price_override is not None
+                else package[2]
+            )
+            if package_price is None:
+                return None
+            rate = package_price / package_quantity
+        amount_in_basis_units = (
+            package_quantity * amount / package_amount_in_recipe_unit_override
+        )
+        return round(rate * amount_in_basis_units, 2)
+
     if price_mode is None and package is not None and package[3] is not None:
         if package_price_override is not None:
             return round(package_price_override * package[3], 2)
         if family == "pieces" and override is None and package[2] is not None:
             return round(package[2] * package[3], 2)
-    if family is None:
-        return None
     rate_key = {"weight": "price_per_kg", "volume": "price_per_liter", "pieces": "price_per_piece"}[family]
     rate = override if override is not None else (quote or {}).get(rate_key)
+    if rate is None and package is not None:
+        basis_info = _package_basis_info(package[0], package[1])
+        if basis_info is not None and basis_info[0] == rate_key:
+            package_price = (
+                package_price_override
+                if package_price_override is not None
+                else package[2]
+            )
+            if package_price is not None:
+                rate = package_price / basis_info[2]
     if rate is None:
         return None
     if family == "weight":
@@ -140,14 +193,6 @@ def _cost_for_amount(
 
 def _item_output(item: ShoppingListItem, product: Product, quote: dict | None) -> ShoppingListItemOut:
     family = UNIT_FAMILY.get(item.unit)
-    catalog_price = None
-    if quote:
-        catalog_price = quote.get({
-            "weight": "price_per_kg",
-            "volume": "price_per_liter",
-            "pieces": "price_per_piece",
-        }.get(family))
-
     package = _package_details(
         item.amount,
         item.unit,
@@ -156,6 +201,32 @@ def _item_output(item: ShoppingListItem, product: Product, quote: dict | None) -
         item.package_unit_override,
         item.package_amount_in_recipe_unit_override,
     )
+    basis_info = (
+        _package_basis_info(package[0], package[1])
+        if package is not None
+        else None
+    )
+    basis_rate_key = basis_info[0] if family is None and basis_info else {
+        "weight": "price_per_kg",
+        "volume": "price_per_liter",
+        "pieces": "price_per_piece",
+    }.get(family)
+    catalog_price = (quote or {}).get(basis_rate_key) if basis_rate_key else None
+    if item.package_amount_override is not None and basis_info and quote:
+        quote_basis = _package_basis_info(
+            float(quote.get("package_amount") or 0),
+            str(quote.get("package_unit") or ""),
+        )
+        if quote_basis and quote_basis[0] != basis_info[0]:
+            catalog_price = None
+    if catalog_price is None and package is not None and basis_info:
+        package_price = (
+            item.package_price_override
+            if item.package_price_override is not None
+            else package[2]
+        )
+        if package_price is not None:
+            catalog_price = package_price / basis_info[2]
     package_amount = package[0] if package else None
     package_unit = package[1] if package else None
     catalog_package_price = package[2] if package else None
@@ -206,9 +277,14 @@ def _item_output(item: ShoppingListItem, product: Product, quote: dict | None) -
         selected_store_product_id=item.selected_store_product_id,
         offered_store_product_id=item.selected_store_product_id or (quote or {}).get("store_product_id"),
         price_override=item.price_override,
-        price_basis_unit=(quote or {}).get("price_basis_unit") or {
-            "weight": "кг", "volume": "л", "pieces": "шт"
-        }.get(UNIT_FAMILY.get(item.unit, ""), None),
+        price_basis_unit=(
+            basis_info[1]
+            if item.package_amount_override is not None and basis_info
+            else (
+                (quote or {}).get("price_basis_unit")
+                or (basis_info[1] if basis_info else None)
+            )
+        ),
         catalog_price_per_basis=round(catalog_price, 2) if catalog_price is not None else None,
         package_amount=package_amount,
         package_unit=package_unit,
@@ -406,6 +482,8 @@ def update_cart_item(item_id: int, payload: ShoppingCartItemUpdate, db: Session 
         item.amount = payload.amount
     if payload.unit is not None and payload.unit != item.unit:
         item.package_amount_in_recipe_unit_override = None
+        if UNIT_FAMILY.get(payload.unit) is None:
+            item.price_mode = "package"
     if payload.unit is not None:
         item.unit = payload.unit
     if "price_override" in payload.model_fields_set:
@@ -416,6 +494,8 @@ def update_cart_item(item_id: int, payload: ShoppingCartItemUpdate, db: Session 
         item.package_amount_override = payload.package_amount_override
         item.package_unit_override = payload.package_unit_override
         item.package_amount_in_recipe_unit_override = None
+        if UNIT_FAMILY.get(item.unit) is None:
+            item.price_mode = "package"
     if "package_amount_in_recipe_unit_override" in payload.model_fields_set:
         if payload.package_amount_in_recipe_unit_override is not None:
             effective_package_amount = item.package_amount_override
@@ -435,6 +515,8 @@ def update_cart_item(item_id: int, payload: ShoppingCartItemUpdate, db: Session 
             and item.package_amount_override is None
         ):
             item.package_amount_in_recipe_unit_override = None
+            if UNIT_FAMILY.get(item.unit) is None:
+                item.price_mode = "package"
         item.selected_store_product_id = payload.selected_store_product_id
 
     db.commit()
