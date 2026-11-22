@@ -34,16 +34,37 @@ type CartItem = {
   package_unit: string | null
   package_price: number | null
   package_price_override: number | null
+  package_amount_override: number | null
+  package_unit_override: string | null
+  price_mode: 'basis' | 'package'
   package_count: number | null
+}
+
+type CartPatch = {
+  amount?: number
+  price_override?: number | null
+  package_price_override?: number | null
+  package_amount_override?: number | null
+  package_unit_override?: string | null
+  price_mode?: 'basis' | 'package'
+  selected_store_product_id?: number | null
 }
 
 function CartItemRow({ item, onUpdate, onRemove, onSavePrice }: {
   item: CartItem
-  onUpdate: (id: number, patch: { amount?: number; price_override?: number | null; package_price_override?: number | null; selected_store_product_id?: number | null }) => void
+  onUpdate: (id: number, patch: CartPatch) => void
   onRemove: (id: number) => void
   onSavePrice: (id: number) => void
 }) {
   const [amount, setAmount] = useState(String(item.amount))
+  const packageUnits = ['g', 'kg'].includes(item.unit)
+    ? ['г', 'кг']
+    : ['ml', 'l'].includes(item.unit)
+      ? ['мл', 'л']
+      : item.unit === 'pcs' ? ['шт'] : []
+  const currentPackageAmount = item.package_amount_override ?? item.package_amount
+  const currentPackageUnit = item.package_unit_override ?? item.package_unit
+  const defaultPackageUnit = packageUnits[0] ?? ''
   const [price, setPrice] = useState(
     item.price_override !== null
       ? String(item.price_override)
@@ -60,15 +81,33 @@ function CartItemRow({ item, onUpdate, onRemove, onSavePrice }: {
         : '',
   )
   const [packagePriceChanged, setPackagePriceChanged] = useState(false)
-  const [priceMode, setPriceMode] = useState<'basis' | 'package'>(
-    item.package_price_override !== null ? 'package' : 'basis',
+  const [packageAmount, setPackageAmount] = useState(
+    currentPackageAmount === null ? '' : String(currentPackageAmount),
   )
+  const [packageUnit, setPackageUnit] = useState(currentPackageUnit ?? defaultPackageUnit)
   const { data: offers = [] } = useQuery({
     queryKey: ['store-products', item.product_id],
     queryFn: () => api.getStoreProducts(item.product_id),
   })
 
   const basis = item.price_basis_unit || (['g', 'kg'].includes(item.unit) ? 'кг' : ['ml', 'l'].includes(item.unit) ? 'л' : 'шт')
+  const commitPackageSize = (rawAmount: string, unit: string) => {
+    if (!rawAmount.trim()) {
+      if (item.package_amount_override !== null || item.package_unit_override !== null) {
+        onUpdate(item.id, { package_amount_override: null, package_unit_override: null })
+      }
+      return
+    }
+    const next = Number(rawAmount)
+    if (!Number.isFinite(next) || next <= 0) {
+      setPackageAmount(currentPackageAmount === null ? '' : String(currentPackageAmount))
+      setPackageUnit(currentPackageUnit ?? defaultPackageUnit)
+      return
+    }
+    if (next !== currentPackageAmount || unit !== currentPackageUnit) {
+      onUpdate(item.id, { package_amount_override: next, package_unit_override: unit })
+    }
+  }
 
   return (
     <li className="border-b pb-4 last:border-0 last:pb-0 space-y-3">
@@ -84,7 +123,7 @@ function CartItemRow({ item, onUpdate, onRemove, onSavePrice }: {
       </div>
       <div className="grid grid-cols-2 gap-2">
         <label className="text-xs text-muted-foreground">
-          Количество ({item.unit})
+          Количество из рецепта ({item.unit})
           <Input
             type="number" min="0.01" step="any" value={amount}
             onChange={(event) => setAmount(event.target.value)}
@@ -95,28 +134,24 @@ function CartItemRow({ item, onUpdate, onRemove, onSavePrice }: {
             }}
             className="mt-1 h-8"
           />
+          <span className="mt-1 block">При покупке упаковками это количество не меняется.</span>
         </label>
-        {item.package_amount !== null && item.package_unit ? (
+        {packageUnits.length > 0 ? (
           <label className="text-xs text-muted-foreground">
             Режим цены
             <select
               className="mt-1 h-8 w-full rounded-md border bg-background px-2 text-sm"
-              value={priceMode}
+              value={item.price_mode}
               onChange={(event) => {
                 const nextMode = event.target.value as 'basis' | 'package'
-                setPriceMode(nextMode)
-                if (nextMode === 'basis') {
-                  onUpdate(item.id, { package_price_override: null })
-                } else {
-                  onUpdate(item.id, { price_override: null })
-                }
+                onUpdate(item.id, { price_mode: nextMode })
               }}
             >
               <option value="basis">За {basis}</option>
               <option value="package">За упаковку</option>
             </select>
           </label>
-        ) : (
+        ) : item.price_mode === 'basis' ? (
           <label className="text-xs text-muted-foreground">
             Цена за {basis}, ₽
             <Input
@@ -141,15 +176,43 @@ function CartItemRow({ item, onUpdate, onRemove, onSavePrice }: {
               className="mt-1 h-8"
             />
           </label>
-        )}
+        ) : null}
       </div>
-      {item.package_amount !== null && item.package_unit && (
+      {packageUnits.length > 0 && (
         <div className="rounded-md border bg-background p-2 space-y-2">
           <div className="flex justify-between gap-2 text-xs text-muted-foreground">
-            <span>Упаковка: {item.package_amount} {item.package_unit}</span>
-            {item.package_count !== null && <span>Нужно упаковок: {item.package_count}</span>}
+            <span>Размер упаковки</span>
+            <span>
+              {item.package_count === null
+                ? 'Укажите размер упаковки'
+                : `Понадобится упаковок: ${item.package_count}`}
+            </span>
           </div>
-          {priceMode === 'basis' ? (
+          <div className="grid grid-cols-[1fr_auto] gap-2">
+            <Input
+              type="number"
+              min="0.01"
+              step="any"
+              value={packageAmount}
+              placeholder="Например, 500"
+              onChange={(event) => setPackageAmount(event.target.value)}
+              onBlur={() => commitPackageSize(packageAmount, packageUnit)}
+              className="h-8"
+              aria-label="Размер упаковки"
+            />
+            <select
+              className="h-8 rounded-md border bg-background px-2 text-sm"
+              value={packageUnit}
+              onChange={(event) => {
+                setPackageUnit(event.target.value)
+                commitPackageSize(packageAmount, event.target.value)
+              }}
+              aria-label="Единица упаковки"
+            >
+              {packageUnits.map((unit) => <option key={unit} value={unit}>{unit}</option>)}
+            </select>
+          </div>
+          {item.price_mode === 'basis' ? (
             <label className="text-xs text-muted-foreground">
               Цена за {basis}, ₽
               <Input
@@ -235,7 +298,7 @@ function CartItemRow({ item, onUpdate, onRemove, onSavePrice }: {
           </select>
         </label>
       )}
-      {item.price_override !== null && (
+      {item.price_mode === 'basis' && item.price_override !== null && (
         <div className="flex items-center justify-between gap-2">
           <div className="text-xs text-muted-foreground">Цена изменена только для этой корзины.</div>
           <Button
@@ -262,7 +325,7 @@ export function CartSheet({ trigger }: { trigger: React.ReactNode }) {
 
   const refreshCart = () => qc.invalidateQueries({ queryKey: ['cart'] })
   const updateMutation = useMutation({
-    mutationFn: ({ id, patch }: { id: number; patch: { amount?: number; price_override?: number | null; package_price_override?: number | null; selected_store_product_id?: number | null } }) =>
+    mutationFn: ({ id, patch }: { id: number; patch: CartPatch }) =>
       api.updateCartItem(id, patch),
     onSuccess: refreshCart,
     onError: (err: Error) => toast.error('Не удалось изменить корзину: ' + err.message),
@@ -316,7 +379,7 @@ export function CartSheet({ trigger }: { trigger: React.ReactNode }) {
             <ul className="space-y-5">
               {cart.items.map((item: CartItem) => (
                 <CartItemRow
-                  key={`${item.id}-${item.amount}-${item.price_override ?? 'catalog'}-${item.package_price_override ?? 'package-catalog'}`}
+                  key={`${item.id}-${item.amount}-${item.price_override ?? 'catalog'}-${item.package_price_override ?? 'package-catalog'}-${item.package_amount_override ?? 'catalog-size'}-${item.package_unit_override ?? 'catalog-unit'}-${item.price_mode}`}
                   item={item}
                   onUpdate={(id, patch) => updateMutation.mutate({ id, patch })}
                   onRemove={(id) => removeMutation.mutate(id)}

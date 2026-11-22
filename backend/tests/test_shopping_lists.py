@@ -176,6 +176,100 @@ def test_cart_package_price_counts_required_packages(db_session):
     assert updated.items[0].cost == 300
 
 
+def test_manual_package_size_and_price_do_not_change_recipe_quantity_when_switching_modes(db_session):
+    product = Product(name="Мука", status="active")
+    db_session.add(product)
+    db_session.flush()
+    offer = StoreProduct(
+        universal_product_id=product.id,
+        name="Мука, 500 г",
+        store_name="Магазин",
+        package_amount=500,
+        package_unit="г",
+        status="active",
+    )
+    db_session.add(offer)
+    db_session.flush()
+    db_session.add(StoreProductPrice(
+        store_product_id=offer.id,
+        price=80,
+        currency="RUB",
+        source="manual",
+    ))
+    db_session.commit()
+
+    cart = add_to_cart(product.id, amount=750, unit="g", db=db_session)
+    item = cart.items[0]
+    package_mode = update_cart_item(
+        item.id,
+        ShoppingCartItemUpdate(
+            package_amount_override=250,
+            package_unit_override="г",
+            package_price_override=30,
+            price_mode="package",
+        ),
+        db_session,
+    ).items[0]
+
+    assert package_mode.amount == 750
+    assert package_mode.package_amount == 250
+    assert package_mode.package_count == 3
+    assert package_mode.cost == 90
+
+    basis_mode = update_cart_item(
+        item.id,
+        ShoppingCartItemUpdate(price_mode="basis"),
+        db_session,
+    ).items[0]
+
+    assert basis_mode.amount == 750
+    assert basis_mode.package_amount == 250
+    assert basis_mode.package_price_override == 30
+    assert basis_mode.cost == 120
+
+
+def test_manual_package_size_and_price_work_without_catalog_offer(db_session):
+    product = Product(name="Крупа", status="active")
+    db_session.add(product)
+    db_session.commit()
+
+    cart = add_to_cart(product.id, amount=600, unit="g", db=db_session)
+    item = cart.items[0]
+    updated = update_cart_item(
+        item.id,
+        ShoppingCartItemUpdate(
+            package_amount_override=250,
+            package_unit_override="г",
+            package_price_override=45,
+            price_mode="package",
+        ),
+        db_session,
+    ).items[0]
+
+    assert updated.amount == 600
+    assert updated.package_count == 3
+    assert updated.cost == 135
+
+
+def test_manual_package_size_must_use_compatible_units(db_session):
+    product = Product(name="Молоко", status="active")
+    db_session.add(product)
+    db_session.commit()
+    cart = add_to_cart(product.id, amount=500, unit="ml", db=db_session)
+
+    with pytest.raises(HTTPException) as exc:
+        update_cart_item(
+            cart.items[0].id,
+            ShoppingCartItemUpdate(
+                package_amount_override=1,
+                package_unit_override="кг",
+            ),
+            db_session,
+        )
+
+    assert exc.value.status_code == 422
+
+
 def test_saving_cart_price_appends_history_only_when_requested(db_session):
     product = Product(name="Молоко 3,2%", status="active")
     db_session.add(product)

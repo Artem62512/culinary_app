@@ -63,6 +63,10 @@ export const api = {
     amount?: number
     unit?: string
     price_override?: number | null
+    package_price_override?: number | null
+    package_amount_override?: number | null
+    package_unit_override?: string | null
+    price_mode?: 'basis' | 'package'
     selected_store_product_id?: number | null
   }) => apiFetch<any>(`/shopping-lists/cart/item/${itemId}`, { method: 'PATCH', body: JSON.stringify(body) }),
   saveCartPriceToHistory: (itemId: number) => apiFetch<any>(`/shopping-lists/cart/item/${itemId}/save-price`, { method: 'POST' }),
