@@ -63,21 +63,27 @@ def _package_details(
     quote: dict | None,
     package_amount_override: float | None = None,
     package_unit_override: str | None = None,
-) -> tuple[float, str, float | None, int] | None:
+    package_amount_in_recipe_unit_override: float | None = None,
+) -> tuple[float, str, float | None, int | None] | None:
     has_package_override = package_amount_override is not None
     package_amount = package_amount_override if has_package_override else (quote or {}).get("package_amount")
     package_unit = package_unit_override if has_package_override else (quote or {}).get("package_unit")
     if package_amount is None or package_unit is None:
         return None
     package = PACKAGE_UNITS.get(str(package_unit).strip().casefold())
-    family = UNIT_FAMILY.get(unit)
-    if package is None or family is None or package[0] != family:
+    if package is None:
         return None
-    base_amount = amount * UNIT_FACTORS[unit] if family != "pieces" else amount
     package_base_amount = float(package_amount) * package[1]
     if package_base_amount <= 0:
         return None
-    count = max(1, math.ceil(base_amount / package_base_amount - 1e-9))
+    family = UNIT_FAMILY.get(unit)
+    if package_amount_in_recipe_unit_override is not None:
+        count = max(1, math.ceil(amount / package_amount_in_recipe_unit_override - 1e-9))
+    elif family is None or package[0] != family:
+        count = None
+    else:
+        base_amount = amount * UNIT_FACTORS[unit] if family != "pieces" else amount
+        count = max(1, math.ceil(base_amount / package_base_amount - 1e-9))
     package_price = None if has_package_override else (quote or {}).get("package_price")
     return (
         float(package_amount),
@@ -95,24 +101,30 @@ def _cost_for_amount(
     package_price_override: float | None = None,
     package_amount_override: float | None = None,
     package_unit_override: str | None = None,
+    package_amount_in_recipe_unit_override: float | None = None,
     price_mode: str | None = None,
 ) -> float | None:
-    family = UNIT_FAMILY.get(unit)
-    if family is None:
-        return None
     package = _package_details(
-        amount, unit, quote, package_amount_override, package_unit_override,
+        amount,
+        unit,
+        quote,
+        package_amount_override,
+        package_unit_override,
+        package_amount_in_recipe_unit_override,
     )
     if price_mode == "package":
-        if package is None:
+        if package is None or package[3] is None:
             return None
         package_price = package_price_override if package_price_override is not None else package[2]
         return round(package_price * package[3], 2) if package_price is not None else None
-    if price_mode is None and package is not None:
+    family = UNIT_FAMILY.get(unit)
+    if price_mode is None and package is not None and package[3] is not None:
         if package_price_override is not None:
             return round(package_price_override * package[3], 2)
         if family == "pieces" and override is None and package[2] is not None:
             return round(package[2] * package[3], 2)
+    if family is None:
+        return None
     rate_key = {"weight": "price_per_kg", "volume": "price_per_liter", "pieces": "price_per_piece"}[family]
     rate = override if override is not None else (quote or {}).get(rate_key)
     if rate is None:
@@ -142,6 +154,7 @@ def _item_output(item: ShoppingListItem, product: Product, quote: dict | None) -
         quote,
         item.package_amount_override,
         item.package_unit_override,
+        item.package_amount_in_recipe_unit_override,
     )
     package_amount = package[0] if package else None
     package_unit = package[1] if package else None
@@ -151,7 +164,7 @@ def _item_output(item: ShoppingListItem, product: Product, quote: dict | None) -
     if price_mode is None:
         price_mode = (
             "package"
-            if package is not None and (
+            if family is None or package is not None and (
                 item.package_price_override is not None
                 or family == "pieces" and package[2] is not None
             )
@@ -172,6 +185,7 @@ def _item_output(item: ShoppingListItem, product: Product, quote: dict | None) -
             item.package_price_override,
             item.package_amount_override,
             item.package_unit_override,
+            item.package_amount_in_recipe_unit_override,
             item.price_mode,
         ),
         price_source=(
@@ -202,6 +216,7 @@ def _item_output(item: ShoppingListItem, product: Product, quote: dict | None) -
         package_price_override=item.package_price_override,
         package_amount_override=item.package_amount_override,
         package_unit_override=item.package_unit_override,
+        package_amount_in_recipe_unit_override=item.package_amount_in_recipe_unit_override,
         price_mode=price_mode,
         package_count=package_count,
     )
@@ -373,10 +388,6 @@ def update_cart_item(item_id: int, payload: ShoppingCartItemUpdate, db: Session 
         offer = db.get(StoreProduct, payload.selected_store_product_id)
         if not offer or offer.universal_product_id != product.id or offer.status != "active":
             raise HTTPException(422, "Предложение не относится к этому активному продукту")
-        package = PACKAGE_UNITS.get((offer.package_unit or "").strip().casefold())
-        family = UNIT_FAMILY.get(item.unit)
-        if family and package and package[0] != family:
-            raise HTTPException(422, "Единица предложения несовместима с количеством в корзине")
     new_unit = payload.unit if payload.unit is not None else item.unit
     package_override_fields = {"package_amount_override", "package_unit_override"}
     if package_override_fields.intersection(payload.model_fields_set):
@@ -386,14 +397,15 @@ def update_cart_item(item_id: int, payload: ShoppingCartItemUpdate, db: Session 
             raise HTTPException(422, "Размер упаковки и единицу нужно указать или сбросить вместе")
         if payload.package_amount_override is not None:
             package = PACKAGE_UNITS.get(payload.package_unit_override.casefold())
-            family = UNIT_FAMILY.get(new_unit)
-            if package is None or family is None or package[0] != family:
-                raise HTTPException(422, "Единица упаковки несовместима с количеством в корзине")
+            if package is None:
+                raise HTTPException(422, "Недопустимая единица упаковки")
     if item.price_override is not None and UNIT_FAMILY.get(new_unit) != UNIT_FAMILY.get(item.unit):
         raise HTTPException(422, "Сначала сбросьте цену корзины, чтобы изменить тип единицы")
 
     if payload.amount is not None:
         item.amount = payload.amount
+    if payload.unit is not None and payload.unit != item.unit:
+        item.package_amount_in_recipe_unit_override = None
     if payload.unit is not None:
         item.unit = payload.unit
     if "price_override" in payload.model_fields_set:
@@ -403,9 +415,26 @@ def update_cart_item(item_id: int, payload: ShoppingCartItemUpdate, db: Session 
     if package_override_fields.issubset(payload.model_fields_set):
         item.package_amount_override = payload.package_amount_override
         item.package_unit_override = payload.package_unit_override
+        item.package_amount_in_recipe_unit_override = None
+    if "package_amount_in_recipe_unit_override" in payload.model_fields_set:
+        if payload.package_amount_in_recipe_unit_override is not None:
+            effective_package_amount = item.package_amount_override
+            effective_package_unit = item.package_unit_override
+            if effective_package_amount is None:
+                quote = _quote_for_cart_item(db, item, product) or {}
+                effective_package_amount = quote.get("package_amount")
+                effective_package_unit = quote.get("package_unit")
+            if effective_package_amount is None or effective_package_unit is None:
+                raise HTTPException(422, "Сначала укажите размер упаковки")
+        item.package_amount_in_recipe_unit_override = payload.package_amount_in_recipe_unit_override
     if payload.price_mode is not None:
         item.price_mode = payload.price_mode
     if "selected_store_product_id" in payload.model_fields_set:
+        if (
+            payload.selected_store_product_id != item.selected_store_product_id
+            and item.package_amount_override is None
+        ):
+            item.package_amount_in_recipe_unit_override = None
         item.selected_store_product_id = payload.selected_store_product_id
 
     db.commit()

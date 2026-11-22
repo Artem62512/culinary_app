@@ -36,6 +36,7 @@ type CartItem = {
   package_price_override: number | null
   package_amount_override: number | null
   package_unit_override: string | null
+  package_amount_in_recipe_unit_override: number | null
   price_mode: 'basis' | 'package'
   package_count: number | null
 }
@@ -46,6 +47,7 @@ type CartPatch = {
   package_price_override?: number | null
   package_amount_override?: number | null
   package_unit_override?: string | null
+  package_amount_in_recipe_unit_override?: number | null
   price_mode?: 'basis' | 'package'
   selected_store_product_id?: number | null
 }
@@ -57,14 +59,20 @@ function CartItemRow({ item, onUpdate, onRemove, onSavePrice }: {
   onSavePrice: (id: number) => void
 }) {
   const [amount, setAmount] = useState(String(item.amount))
-  const packageUnits = ['g', 'kg'].includes(item.unit)
+  const packageUnits = ['г', 'кг', 'мл', 'л', 'шт']
+  const currentPackageAmount = item.package_amount_override ?? item.package_amount
+  const currentPackageUnit = item.package_unit_override ?? item.package_unit
+  const defaultPackageUnit = ['g', 'kg'].includes(item.unit)
+    ? 'г'
+    : ['ml', 'l', 'cup', 'tbsp', 'tsp'].includes(item.unit)
+      ? 'мл'
+      : 'шт'
+  const recipeCompatiblePackageUnits = ['g', 'kg'].includes(item.unit)
     ? ['г', 'кг']
     : ['ml', 'l'].includes(item.unit)
       ? ['мл', 'л']
       : item.unit === 'pcs' ? ['шт'] : []
-  const currentPackageAmount = item.package_amount_override ?? item.package_amount
-  const currentPackageUnit = item.package_unit_override ?? item.package_unit
-  const defaultPackageUnit = packageUnits[0] ?? ''
+  const supportsBasisPrice = ['g', 'kg', 'ml', 'l', 'pcs'].includes(item.unit)
   const [price, setPrice] = useState(
     item.price_override !== null
       ? String(item.price_override)
@@ -85,12 +93,27 @@ function CartItemRow({ item, onUpdate, onRemove, onSavePrice }: {
     currentPackageAmount === null ? '' : String(currentPackageAmount),
   )
   const [packageUnit, setPackageUnit] = useState(currentPackageUnit ?? defaultPackageUnit)
+  const [packageAmountInRecipeUnit, setPackageAmountInRecipeUnit] = useState(
+    item.package_amount_in_recipe_unit_override === null
+      ? ''
+      : String(item.package_amount_in_recipe_unit_override),
+  )
+  const needsPackageEquivalent = (packageAmountValue: string): boolean => (
+    String(packageAmountValue).trim() !== ''
+    && !recipeCompatiblePackageUnits.includes(packageUnit)
+  )
   const { data: offers = [] } = useQuery({
     queryKey: ['store-products', item.product_id],
     queryFn: () => api.getStoreProducts(item.product_id),
   })
 
-  const basis = item.price_basis_unit || (['g', 'kg'].includes(item.unit) ? 'кг' : ['ml', 'l'].includes(item.unit) ? 'л' : 'шт')
+  const basis = item.price_basis_unit || (
+    ['g', 'kg'].includes(item.unit)
+      ? 'кг'
+      : ['ml', 'l'].includes(item.unit)
+        ? 'л'
+        : item.unit === 'pcs' ? 'шт' : item.unit
+  )
   const commitPackageSize = (rawAmount: string, unit: string) => {
     if (!rawAmount.trim()) {
       if (item.package_amount_override !== null || item.package_unit_override !== null) {
@@ -106,6 +129,28 @@ function CartItemRow({ item, onUpdate, onRemove, onSavePrice }: {
     }
     if (next !== currentPackageAmount || unit !== currentPackageUnit) {
       onUpdate(item.id, { package_amount_override: next, package_unit_override: unit })
+    }
+  }
+  const commitPackageEquivalent = (rawAmount: string) => {
+    if (!rawAmount.trim()) {
+      if (item.package_amount_in_recipe_unit_override !== null) {
+        onUpdate(item.id, { package_amount_in_recipe_unit_override: null })
+      }
+      return
+    }
+    const next = Number(rawAmount)
+    if (
+      Number.isFinite(next)
+      && next > 0
+      && next !== item.package_amount_in_recipe_unit_override
+    ) {
+      onUpdate(item.id, { package_amount_in_recipe_unit_override: next })
+    } else if (!Number.isFinite(next) || next <= 0) {
+      setPackageAmountInRecipeUnit(
+        item.package_amount_in_recipe_unit_override === null
+          ? ''
+          : String(item.package_amount_in_recipe_unit_override),
+      )
     }
   }
 
@@ -136,7 +181,7 @@ function CartItemRow({ item, onUpdate, onRemove, onSavePrice }: {
           />
           <span className="mt-1 block">При покупке упаковками это количество не меняется.</span>
         </label>
-        {packageUnits.length > 0 ? (
+        {supportsBasisPrice ? (
           <label className="text-xs text-muted-foreground">
             Режим цены
             <select
@@ -151,40 +196,16 @@ function CartItemRow({ item, onUpdate, onRemove, onSavePrice }: {
               <option value="package">За упаковку</option>
             </select>
           </label>
-        ) : item.price_mode === 'basis' ? (
-          <label className="text-xs text-muted-foreground">
-            Цена за {basis}, ₽
-            <Input
-              type="number" min="0" step="any" value={price}
-              placeholder="По каталогу"
-              onChange={(event) => {
-                setPrice(event.target.value)
-                setPriceChanged(true)
-              }}
-              onBlur={() => {
-                if (!priceChanged) return
-                if (!price.trim()) {
-                  if (item.price_override !== null) onUpdate(item.id, { price_override: null })
-                  setPriceChanged(false)
-                  return
-                }
-                const next = Number(price)
-                if (Number.isFinite(next) && next >= 0 && next !== item.price_override) onUpdate(item.id, { price_override: next })
-                else setPrice(item.price_override === null ? '' : String(item.price_override))
-                setPriceChanged(false)
-              }}
-              className="mt-1 h-8"
-            />
-          </label>
-        ) : null}
+        ) : <div className="text-xs text-muted-foreground">Цена для этой меры рассчитывается по упаковке.</div>}
       </div>
-      {packageUnits.length > 0 && (
-        <div className="rounded-md border bg-background p-2 space-y-2">
+      <div className="rounded-md border bg-background p-2 space-y-2">
           <div className="flex justify-between gap-2 text-xs text-muted-foreground">
             <span>Размер упаковки</span>
             <span>
               {item.package_count === null
-                ? 'Укажите размер упаковки'
+                ? packageAmount.trim() && needsPackageEquivalent(packageAmount)
+                  ? `Укажите эквивалент в ${item.unit}`
+                  : 'Укажите размер упаковки'
                 : `Понадобится упаковок: ${item.package_count}`}
             </span>
           </div>
@@ -212,7 +233,22 @@ function CartItemRow({ item, onUpdate, onRemove, onSavePrice }: {
               {packageUnits.map((unit) => <option key={unit} value={unit}>{unit}</option>)}
             </select>
           </div>
-          {item.price_mode === 'basis' ? (
+          {needsPackageEquivalent(packageAmount) && (
+            <label className="block text-xs text-muted-foreground">
+              Сколько {item.unit} содержится в одной упаковке?
+              <Input
+                type="number"
+                min="0.01"
+                step="any"
+                value={packageAmountInRecipeUnit}
+                placeholder={`Например, 4 ${item.unit}`}
+                onChange={(event) => setPackageAmountInRecipeUnit(event.target.value)}
+                onBlur={() => commitPackageEquivalent(packageAmountInRecipeUnit)}
+                className="mt-1 h-8"
+              />
+            </label>
+          )}
+          {item.price_mode === 'basis' && supportsBasisPrice ? (
             <label className="text-xs text-muted-foreground">
               Цена за {basis}, ₽
               <Input
@@ -277,8 +313,7 @@ function CartItemRow({ item, onUpdate, onRemove, onSavePrice }: {
               />
             </label>
           )}
-        </div>
-      )}
+      </div>
       {offers.length > 0 && (
         <label className="block text-xs text-muted-foreground">
           Источник предложения
@@ -379,7 +414,7 @@ export function CartSheet({ trigger }: { trigger: React.ReactNode }) {
             <ul className="space-y-5">
               {cart.items.map((item: CartItem) => (
                 <CartItemRow
-                  key={`${item.id}-${item.amount}-${item.price_override ?? 'catalog'}-${item.package_price_override ?? 'package-catalog'}-${item.package_amount_override ?? 'catalog-size'}-${item.package_unit_override ?? 'catalog-unit'}-${item.price_mode}`}
+                  key={`${item.id}-${item.amount}-${item.price_override ?? 'catalog'}-${item.package_price_override ?? 'package-catalog'}-${item.package_amount_override ?? 'catalog-size'}-${item.package_unit_override ?? 'catalog-unit'}-${item.package_amount_in_recipe_unit_override ?? 'no-equivalence'}-${item.price_mode}`}
                   item={item}
                   onUpdate={(id, patch) => updateMutation.mutate({ id, patch })}
                   onRemove={(id) => removeMutation.mutate(id)}

@@ -25,6 +25,7 @@ class ShoppingListItem(Base):
     package_price_override: Mapped[float | None] = mapped_column(Float, nullable=True)
     package_amount_override: Mapped[float | None] = mapped_column(Float, nullable=True)
     package_unit_override: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    package_amount_in_recipe_unit_override: Mapped[float | None] = mapped_column(Float, nullable=True)
     price_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)
     selected_store_product_id: Mapped[int | None] = mapped_column(
         ForeignKey("store_products.id", ondelete="SET NULL"), nullable=True

@@ -66,6 +66,7 @@ export const api = {
     package_price_override?: number | null
     package_amount_override?: number | null
     package_unit_override?: string | null
+    package_amount_in_recipe_unit_override?: number | null
     price_mode?: 'basis' | 'package'
     selected_store_product_id?: number | null
   }) => apiFetch<any>(`/shopping-lists/cart/item/${itemId}`, { method: 'PATCH', body: JSON.stringify(body) }),

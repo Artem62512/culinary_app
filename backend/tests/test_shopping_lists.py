@@ -251,19 +251,55 @@ def test_manual_package_size_and_price_work_without_catalog_offer(db_session):
     assert updated.cost == 135
 
 
-def test_manual_package_size_must_use_compatible_units(db_session):
+def test_manual_package_size_can_use_different_units_with_recipe_equivalent(db_session):
     product = Product(name="Молоко", status="active")
     db_session.add(product)
     db_session.commit()
-    cart = add_to_cart(product.id, amount=500, unit="ml", db=db_session)
+    cart = add_to_cart(product.id, amount=2, unit="cup", db=db_session)
+
+    without_conversion = update_cart_item(
+        cart.items[0].id,
+        ShoppingCartItemUpdate(
+            package_amount_override=1,
+            package_unit_override="л",
+            package_price_override=150,
+            price_mode="package",
+        ),
+        db_session,
+    ).items[0]
+    assert without_conversion.amount == 2
+    assert without_conversion.package_count is None
+    assert without_conversion.cost is None
+
+    with_conversion = update_cart_item(
+        cart.items[0].id,
+        ShoppingCartItemUpdate(package_amount_in_recipe_unit_override=4),
+        db_session,
+    ).items[0]
+    assert with_conversion.amount == 2
+    assert with_conversion.package_count == 1
+    assert with_conversion.cost == 150
+
+    more_than_one_package = update_cart_item(
+        cart.items[0].id,
+        ShoppingCartItemUpdate(amount=5),
+        db_session,
+    ).items[0]
+    assert more_than_one_package.amount == 5
+    assert more_than_one_package.package_count == 2
+    assert more_than_one_package.cost == 300
+
+
+def test_package_equivalent_requires_package_dimensions(db_session):
+    product = Product(name="Масло подсолнечное", status="active")
+    db_session.add(product)
+    db_session.commit()
+    cart = add_to_cart(product.id, amount=1, unit="cup", db=db_session)
 
     with pytest.raises(HTTPException) as exc:
         update_cart_item(
             cart.items[0].id,
-            ShoppingCartItemUpdate(
-                package_amount_override=1,
-                package_unit_override="кг",
-            ),
+            ShoppingCartItemUpdate(package_amount_in_recipe_unit_override=4),
             db_session,
         )
 
