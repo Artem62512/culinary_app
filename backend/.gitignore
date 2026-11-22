@@ -1,5 +1,6 @@
 .env
 *.db
+!catalog_snapshot.db
 *.sqlite
 *.sqlite3
 __pycache__/
